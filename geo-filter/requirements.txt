@@ -1,3 +1,4 @@
 Flask
 pydantic
 flask-cors
+requests
