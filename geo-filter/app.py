@@ -1,6 +1,5 @@
 from flask import Flask, request, Response
 from flask_cors import CORS
-import requests
 from db import InMemoryDatabase
 from kong import KongApiAdmin
 from typing import List, Dict
@@ -11,10 +10,9 @@ database = InMemoryDatabase()
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:8080"])
 
-kongAdmin = KongApiAdmin("flask_geo_filtering", ["/"], database=database)
+kongAdmin = KongApiAdmin("flask_geo_filtering", ["/geofilter"], database=database)
 
 print("Kong:")
-print("Consumber", kongAdmin.consumer.name)
 print("Service", kongAdmin.service.name)
 print("Routes", kongAdmin.routes.name)
 print("PluginId", kongAdmin.plugin_id)
@@ -52,7 +50,14 @@ def fetch_or_update_website_configuration(mode: str):
             database.mode = "Whitelist"
             
         kongAdmin.acitvate_plugin(database.mode, database.blacklist_countries, database.whitelist_countries)
+        
+        print("Kong:")
+        print("Service", kongAdmin.service.name)
+        print("Routes", kongAdmin.routes.name)
+        print("PluginId", kongAdmin.plugin_id)
             
         return Response( None, 204 )
-        
+
+
+app.run("0.0.0.0", 5000)    
     

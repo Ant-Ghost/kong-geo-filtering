@@ -3,19 +3,16 @@ import os
 from typing import List
 from pydantic import BaseModel
 from db import InMemoryDatabase
+import random
 
 KONG_ADMIN_URL = os.environ.get("KONG_ADMIN_URL")
 BASE_URL = os.environ.get("BASE_URL")
 
-if KONG_ADMIN_URL is None:
-    exit(1)
+assert KONG_ADMIN_URL is not None, "Please, set KONG_ADMIN_URL env"
     
-if BASE_URL is None:
-    exit(1)
-    
-class KongConsumer(BaseModel):
-    name: str
-    id: str
+assert BASE_URL is not None, "Please, set BASE_URL env"
+
+print("BASE_URLS:", KONG_ADMIN_URL, BASE_URL)
     
 class KongService(BaseModel):
     name: str
@@ -30,18 +27,15 @@ class KongApiAdmin:
     
     def __init__(self, app_name: str, routes: List[str], database: InMemoryDatabase) -> None:
         
-        temp_consumer = self.create_consumer(f"{app_name}_consumer")  
-        assert temp_consumer is not None, "Consumer creation failed"
-        self.consumer = temp_consumer
-        
-        temp_service = self.create_service(f"{app_name}_service", BASE_URL)  
+        temp_service = self.create_service(f"{app_name}_service_{random.randint(10,1000)}", BASE_URL)  
         assert temp_service is not None, "Service Creation failed"
         self.service = temp_service
         
-        temp_routes = self.create_route( self.service.name, routes, f"{app_name}_routes")  
+        temp_routes = self.create_route( self.service.name, routes, f"{app_name}_routes_{random.randint(10,1000)}")  
         assert temp_routes is not None, "Routes Creation/Update failed"
         self.routes = temp_routes
         
+        self.plugin_id : str | None = None
         temp_plugin_id = self.acitvate_plugin(database.mode, database.blacklist_countries, database.whitelist_countries)
         assert temp_plugin_id is not None, "Plugin Creation failed"
         self.plugin_id = temp_plugin_id
@@ -59,12 +53,12 @@ class KongApiAdmin:
             "url":url,
         }
         
-        res = requests.post(f'{KONG_ADMIN_URL}/services', data=data)
+        res = requests.post(f'{KONG_ADMIN_URL}/services', json=data)
         
-        print("Create Service:", res.status_code)
+        print("Creation Service:", res.status_code, res.json(), );
         
         if res.status_code < 300:
-            return KongService(name=name, id=(res.json()).id)
+            return KongService(name=name, id=(res.json()).get("id"))
         return None
     
     def check_service(self, name)-> KongService | None:
@@ -72,7 +66,7 @@ class KongApiAdmin:
         
         if res.status_code == 404:
             return None
-        return KongService(name=name, id=(res.json()).id)
+        return KongService(name=name, id=(res.json()).get("id"))
         
     
     def create_route(self, service_name: str, paths: List[str], name: str)-> KongRoutes | None:
@@ -84,9 +78,7 @@ class KongApiAdmin:
                 "paths":paths,
             }
             
-            res = requests.patch(f'{KONG_ADMIN_URL}/services/{service_name}/routes/{name}', data=data)
-            
-            print("Create Route:", res.status_code)
+            res = requests.patch(f'{KONG_ADMIN_URL}/services/{service_name}/routes/{name}', json=data)
             
             if res.status_code < 300:
                 check_existence.routes = paths
@@ -97,12 +89,10 @@ class KongApiAdmin:
                 "paths":paths,
             }
             
-            res = requests.post(f'{KONG_ADMIN_URL}/services/{service_name}/routes', data=data)
-            
-            print("Create Route:", res.status_code)
+            res = requests.post(f'{KONG_ADMIN_URL}/services/{service_name}/routes', json=data)
             
             if res.status_code < 300:
-                return KongRoutes(name=name, id=(res.json()).id, routes=paths)
+                return KongRoutes(name=name, id=(res.json()).get("id"), routes=paths)
             return None
         
     def check_route(self, service_name, name)-> KongRoutes | None:
@@ -110,47 +100,20 @@ class KongApiAdmin:
         
         if res.status_code == 404:
             return None
-        return KongRoutes(name=name, id=(res.json()).id, routes=(res.json()).paths)
+        return KongRoutes(name=name, id=(res.json()).get("id"), routes=(res.json()).get("paths"))
         
-    
-    def create_consumer(self, username: str)-> KongConsumer | None:
-        
-        check_existence = self.check_consumer(username)
-        
-        if(check_existence):
-            return check_existence
-        
-        data = {
-            "username": username,
-        }
-        
-        res = requests.post(f'{KONG_ADMIN_URL}/consumers', data=data)
-        
-        print("Create Service:", res.status_code)
-        
-        if res.status_code < 300:
-            return KongConsumer(name=username, id=(res.json()).id)
-        else:
-            return None
-        
-    
-    def check_consumer(self, name)-> KongConsumer | None:
-        res = requests.get(f'{KONG_ADMIN_URL}/consumers/{name}')
-        
-        if res.status_code == 404:
-            return None
-        return KongConsumer(name=name, id=(res.json()).id)
     
     def acitvate_plugin(self, mode: str, blacklist: List[str] = [], whitelist: List[str]=[]) -> str | None:
         
-        if self.plugin_id:    
+        if self.plugin_id:
+            print("Plugin Present")
         
             check_existence = self.check_plugin(self.plugin_id)
             
             if(check_existence):
                 res = requests.patch(
-                    f'{KONG_ADMIN_URL}/consumers/{self.consumer.name}/plugins/{self.plugin_id}',
-                    data = {
+                    f'{KONG_ADMIN_URL}/routes/{self.routes.name}/plugins/{self.plugin_id}',
+                    json = {
                         "config": {
                             "inject_country_header": "X-COUNTRY",
                             "whitelist_countries": whitelist,
@@ -162,19 +125,13 @@ class KongApiAdmin:
                 )
                 
                 if res.status_code < 300:
-                    return str((res.json()).id)
+                    return str((res.json()).get("id"))
                 return None
-            
+        
         res = requests.post(
-            f'{KONG_ADMIN_URL}/consumers/{self.consumer.name}/plugins',
-            data = {
+            f'{KONG_ADMIN_URL}/routes/{self.routes.name}/plugins',
+            json = {
                 "name": "gaius-geoip",
-                "route": {
-                    "id":self.routes.id
-                },
-                "service": {
-                    "id":self.service.id
-                },
                 "config": {
                     "inject_country_header": "X-COUNTRY",
                     "whitelist_countries": whitelist,
@@ -185,17 +142,19 @@ class KongApiAdmin:
             }
         )
         
+        print(res.status_code, res.json())
+        
         if res.status_code < 300:
-            return str((res.json()).id)
+            return str((res.json()).get("id"))
         return None
         
     
     def check_plugin(self, plugin_id: str) -> str | None:
         
         res = requests.get(
-            f'{KONG_ADMIN_URL}/consumers/{self.consumer.name}/plugins/{plugin_id}',
+            f'{KONG_ADMIN_URL}/routes/{self.routes.name}/plugins/{plugin_id}',
         )
         
         if res.status_code == 404:
             return None
-        return (res.json()).id
+        return (res.json()).get("id")

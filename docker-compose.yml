@@ -1,0 +1,88 @@
+version: "3.7"
+
+services:
+  geo_filter_python:
+    image: geo-filter-python:latest
+    environment:
+      - KONG_ADMIN_URL=http://kong:8001
+      - BASE_URL=http://geo_filter_python:5000/
+    build:
+      context: geo-filter
+      dockerfile: Dockerfile
+    container_name: geo_filter_backend
+    restart: always
+    expose:
+      - 5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - kong
+    command: sh -c '/bin/wait-for-it.sh kong:8001 --timeout=30 -- python app.py'
+
+  geo_filter_vue:
+    image: geo-filter-vue:latest
+    environment:
+      - VUE_APP_API_URL=http://geo_filter_python:5000
+    build:
+      context: geo-filter-ui
+      dockerfile: Dockerfile
+      target: production-stage
+    container_name: geo-filter-frontend
+    restart: always
+    depends_on:
+      - geo_filter_python
+    expose:
+      - 80
+    ports:
+      - "8080:80"
+
+  kong-database:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=kong
+      - POSTGRES_DB=kong
+      - POSTGRES_PASSWORD=kongpass
+    restart: always
+
+  kong-migrations:
+    image: kong/kong-gateway:3.6.1.3
+    command: kong migrations bootstrap
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-database
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PASSWORD=test
+    depends_on:
+      - kong-database
+    restart: always
+
+  kong:
+    image: custom_kong:latest
+    environment:
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_LISTEN=0.0.0.0:8000
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-database
+      - KONG_PG_USER=kong
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_GUI_URL=http://localhost:8002
+      - KONG_PLUGINS=bundled,gaius-geoip
+      - KONG_LICENSE_DATA
+    build:
+      context: test-geoip-plugin
+      dockerfile: Dockerfile
+    container_name: kong_gateway
+    restart: always
+    expose:
+      - 8000
+      - 8001
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+      - "8003:8003"
+      - "8004:8004"

@@ -108,6 +108,8 @@ const onSubmit = async () => {
   const formDetails = toRaw(formState);
 
   try {
+    console.log("updating restrictions");
+
     const response = await axios({
       method: "PATCH",
       url: `${process.env.VUE_APP_API_URL}/restriction/${formDetails.mode}`,
@@ -116,14 +118,16 @@ const onSubmit = async () => {
       },
     });
 
+    console.log("Checking Status");
+
     if (response.status < 300) {
       toast.success("Successfully Updated");
     } else {
+      console.log("Error Response:", response);
       toast.error("Bad Request");
-      console.log(response);
     }
   } catch (err) {
-    console.log(err);
+    console.log("Error:", err);
 
     toast.error("Bad Request");
   }
